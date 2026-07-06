@@ -254,6 +254,27 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
   margin-top: 8px;
   text-transform: uppercase;
 }
+#irow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--gray-d);
+  text-transform: uppercase;
+}
+#ival {
+  width: 58px;
+  padding: 9px 6px;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1.5px solid var(--black);
+  color: var(--black);
+  text-align: center;
+}
 </style>
 </head>
 <body>
@@ -294,6 +315,10 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
   <span id="st"></span>
 </div>
 <div id="sdwarn"></div>
+<div id="irow">
+  Log every&nbsp;<input id="ival" type="number" min="1" max="3600" value="1">&nbsp;s
+  <button class="btn" style="border:1.5px solid var(--black)" onclick="setLogInterval()">Set</button>
+</div>
 
 <script>
 const COLORS = ['#F05A00','#0D0D0D','#5C6BC0','#2E7D32','#8D6E63','#7A7A7A'];
@@ -350,50 +375,61 @@ function draw() {
   });
 }
 
-const es = new EventSource('/events');
+let es;
+function connectSSE() {
+  if (es) es.close();
+  es = new EventSource('/events');
 
-es.addEventListener('temp', function(e) {
-  const p     = e.data.split(',');
-  const vals  = p.slice(0, 6).map(Number);
-  const ms    = parseInt(p[6]);
-  const logC  = parseInt(p[7]);
-  const state = parseInt(p[8]);
-  const sdOk  = parseInt(p[9]);
+  es.addEventListener('temp', function(e) {
+    const p     = e.data.split(',');
+    const vals  = p.slice(0, 6).map(Number);
+    const ms    = parseInt(p[6]);
+    const logC  = parseInt(p[7]);
+    const state = parseInt(p[8]);
+    const sdOk  = parseInt(p[9]);
 
-  vals.forEach((v, i) => {
-    const el = document.getElementById('v' + i);
-    if (v > 500)       { el.textContent = 'OPEN';  el.className = 'val err'; }
-    else if (v < -500) { el.textContent = 'SHORT'; el.className = 'val err'; }
-    else               { el.textContent = v.toFixed(2) + '\xb0C'; el.className = 'val'; }
+    vals.forEach((v, i) => {
+      const el = document.getElementById('v' + i);
+      if (v > 500)       { el.textContent = 'OPEN';  el.className = 'val err'; }
+      else if (v < -500) { el.textContent = 'SHORT'; el.className = 'val err'; }
+      else               { el.textContent = v.toFixed(2) + '\xb0C'; el.className = 'val'; }
+    });
+
+    document.getElementById('sdwarn').textContent =
+      sdOk ? '' : '\u25b2  SD CARD NOT DETECTED \u2014 INSERT CARD AND RESTART';
+
+    const badge = document.getElementById('badge');
+    const btext = document.getElementById('badge-text');
+    badge.className = (state === 1) ? 'recording' : (state === 2) ? 'stopped' : '';
+    btext.textContent = (state === 1) ? 'Recording' : (state === 2) ? 'Session Saved' : 'Idle';
+
+    document.getElementById('startbtn').disabled = (state === 1) || !sdOk;
+    document.getElementById('stopbtn').disabled  = (state !== 1);
+    document.getElementById('dlbtn').disabled    = (state !== 2);
+
+    const fmt = n => n.toLocaleString();
+    const stEl = document.getElementById('st');
+    if      (state === 0) stEl.textContent = 'Ready to record';
+    else if (state === 1) stEl.textContent = fmt(logC) + ' rows captured';
+    else if (state === 2) stEl.textContent = fmt(logC) + ' rows \u2014 name and download your session';
+
+    push(ms, vals);
+    draw();
   });
 
-  document.getElementById('sdwarn').textContent =
-    sdOk ? '' : '\u25b2  SD CARD NOT DETECTED \u2014 INSERT CARD AND RESTART';
+  es.onerror = function() {
+    document.getElementById('badge-text').textContent = 'Reconnecting';
+    document.getElementById('badge').className = '';
+    es.close();
+    setTimeout(connectSSE, 1000);
+  };
+}
+connectSSE();
 
-  const badge = document.getElementById('badge');
-  const btext = document.getElementById('badge-text');
-  badge.className = (state === 1) ? 'recording' : (state === 2) ? 'stopped' : '';
-  btext.textContent = (state === 1) ? 'Recording' : (state === 2) ? 'Session Saved' : 'Idle';
-
-  document.getElementById('startbtn').disabled = (state === 1) || !sdOk;
-  document.getElementById('stopbtn').disabled  = (state !== 1);
-  document.getElementById('dlbtn').disabled    = (state !== 2);
-
-  const fmt = n => n.toLocaleString();
-  const stEl = document.getElementById('st');
-  if      (state === 0) stEl.textContent = 'Ready to record';
-  else if (state === 1) stEl.textContent = fmt(logC) + ' rows captured';
-  else if (state === 2) stEl.textContent = fmt(logC) + ' rows \u2014 name and download your session';
-
-  push(ms, vals);
-  draw();
-});
-
-es.onerror = function() {
-  document.getElementById('badge-text').textContent = 'Reconnecting';
-  document.getElementById('badge').className = '';
-};
-
+function setLogInterval() {
+  const v = parseInt(document.getElementById('ival').value);
+  if (v >= 1 && v <= 3600) fetch('/log/interval?s=' + v);
+}
 function startLog()    { fetch('/log/start'); }
 function stopLog()     { fetch('/log/stop'); }
 function downloadLog() {
@@ -406,6 +442,37 @@ function downloadLog() {
 </body>
 </html>
 )rawliteral";
+
+// ── WiFi helpers ──────────────────────────────────────────────────────────────
+static void startNetworkServices() {
+    configTime(NTP_UTC_OFFSET_SEC, 0, "pool.ntp.org");
+    MDNS.end();
+    if (MDNS.begin("diagboard")) {
+        Serial.print("http://diagboard.local  or  http://");
+    } else {
+        Serial.print("mDNS failed — use http://");
+    }
+    Serial.println(WiFi.localIP());
+}
+
+static bool connectWiFi() {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.printf("Connecting to \"%s\"", WIFI_SSID);
+    unsigned long t = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t < WIFI_CONNECT_TIMEOUT_MS) {
+        delay(250);
+        Serial.print(".");
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println();
+        startNetworkServices();
+        return true;
+    }
+    WiFi.disconnect(true);
+    Serial.println(" FAILED");
+    return false;
+}
 
 // ── Thermistor reading ─────────────────────────────────────────────────────────
 float readTemperatureCelsius(int idx) {
@@ -426,12 +493,23 @@ float readTemperatureCelsius(int idx) {
 // ── Log helpers ───────────────────────────────────────────────────────────────
 static const char LOG_FILE[]   = "/session_temp.csv";
 static const char LOG_HEADER[] = "timestamp,A0_C,A1_C,A2_C,A3_C,A4_C,A5_C\n";
+static unsigned int logIntervalSec = LOG_INTERVAL_DEFAULT_SEC;
 
 void initLog() {
-    // Always start clean — delete any leftover temp file from a previous boot
-    if (SD.exists(LOG_FILE)) SD.remove(LOG_FILE);
-    logCount = 0;
-    sessionState = SESSION_IDLE;
+    if (SD.exists(LOG_FILE)) {
+        // Session file from before reboot — resume it rather than wiping
+        File f = SD.open(LOG_FILE, FILE_READ);
+        size_t sz = f ? f.size() : 0;
+        if (f) f.close();
+        // Estimate existing row count (header + ~58 bytes/row)
+        const size_t headerLen = strlen(LOG_HEADER);
+        logCount = sz > headerLen ? (sz - headerLen) / 58 : 0;
+        sessionState = SESSION_RECORDING;
+        Serial.printf("Resumed session from SD — ~%d rows already logged\n", logCount);
+    } else {
+        logCount = 0;
+        sessionState = SESSION_IDLE;
+    }
 }
 
 void appendLog(float* temps) {
@@ -496,21 +574,9 @@ void setup() {
         initLog();
     }
 
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.printf("Connecting to \"%s\"", WIFI_SSID);
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-        delay(500); Serial.print("."); attempts++;
+    if (!connectWiFi()) {
+        Serial.println("WiFi failed — web server not started. Will retry in loop.");
     }
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("\nWiFi failed — check SSID/password in config.h");
-        return;
-    }
-    Serial.println();
-    configTime(NTP_UTC_OFFSET_SEC, 0, "pool.ntp.org");
-    MDNS.begin("diagboard");
-    Serial.print("Open in browser: http://diagboard.local  or  http://");
-    Serial.println(WiFi.localIP());
 
     // Serve the dashboard
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
@@ -532,6 +598,15 @@ void setup() {
     server.on("/log/stop", HTTP_GET, [](AsyncWebServerRequest *req) {
         sessionState = SESSION_STOPPED;
         req->send(200, "text/plain", "OK");
+    });
+
+    // Set log interval — ?s=N where N is seconds between SD writes
+    server.on("/log/interval", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (req->hasParam("s")) {
+            int v = req->getParam("s")->value().toInt();
+            if (v >= 1 && v <= 3600) logIntervalSec = (unsigned int)v;
+        }
+        req->send(200, "text/plain", String(logIntervalSec).c_str());
     });
 
     // Download — prompt came from the browser; rename temp file, serve it, go idle
@@ -575,6 +650,24 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
+    // WiFi watchdog — reconnects without touching session or SD state
+    static unsigned long lastWiFiCheck = 0;
+    if (millis() - lastWiFiCheck >= WIFI_WATCHDOG_INTERVAL_MS) {
+        lastWiFiCheck = millis();
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("WiFi lost — reconnecting...");
+            connectWiFi();
+        }
+    }
+
+    // Keep-alive ping — forces the async server to flush dead SSE connections
+    static unsigned long lastPing = 0;
+    if (millis() - lastPing >= 3000) {
+        lastPing = millis();
+        events.send("", "ping", millis());
+    }
+
+    // Sample sensors and push to live display at 100 ms
     static unsigned long lastSample = 0;
     if (millis() - lastSample >= SEND_INTERVAL_MS) {
         lastSample = millis();
@@ -582,18 +675,23 @@ void loop() {
         for (int i = 0; i < NUM_SENSORS; i++) {
             lastTemps[i] = readTemperatureCelsius(i);
         }
-        static uint32_t lastMs = 0;
-        lastMs = millis();
-        if (sessionState == SESSION_RECORDING) appendLog(lastTemps);
 
         char payload[128];
         snprintf(payload, sizeof(payload),
                  "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%lu,%d,%d,%d",
                  lastTemps[0], lastTemps[1], lastTemps[2],
                  lastTemps[3], lastTemps[4], lastTemps[5],
-                 (unsigned long)lastMs, logCount,
+                 (unsigned long)millis(), logCount,
                  (int)sessionState,
                  (int)sdAvailable);
         events.send(payload, "temp", millis());
+    }
+
+    // Write to SD at user-configured interval — runs independently of display rate
+    static unsigned long lastLog = 0;
+    if (sessionState == SESSION_RECORDING &&
+        millis() - lastLog >= (unsigned long)logIntervalSec * 1000UL) {
+        lastLog = millis();
+        appendLog(lastTemps);
     }
 }
