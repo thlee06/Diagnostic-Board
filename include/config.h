@@ -3,8 +3,13 @@
 // ── WiFi ──────────────────────────────────────────────────────────────────────
 #define WIFI_SSID                  "NewlabMember 2.4GHz Only"
 #define WIFI_PASSWORD              "!Welcome2NewLab!"
-#define WIFI_CONNECT_TIMEOUT_MS    10000   // ms per connection attempt
-#define WIFI_WATCHDOG_INTERVAL_MS   5000   // ms between drop checks
+#define WIFI_CONNECT_TIMEOUT_MS    12000   // ms before an attempt is declared failed
+#define WIFI_WATCHDOG_INTERVAL_MS   1000   // ms between watchdog ticks (non-blocking)
+#define WIFI_MAX_RETRIES               3   // failed attempts before AP fallback
+
+// AP fallback — spun up after WIFI_MAX_RETRIES failures
+#define WIFI_AP_SSID     "AVOL-DiagBoard"
+#define WIFI_AP_PASSWORD "FuckOffNikita"
 
 // ── Web Server ────────────────────────────────────────────────────────────────
 #define HTTP_PORT        80

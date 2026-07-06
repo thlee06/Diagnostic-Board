@@ -444,34 +444,31 @@ function downloadLog() {
 )rawliteral";
 
 // ── WiFi helpers ──────────────────────────────────────────────────────────────
+static bool apModeActive = false;
+static int  wifiRetries  = 0;
+
 static void startNetworkServices() {
+    apModeActive = false;
+    wifiRetries  = 0;
     configTime(NTP_UTC_OFFSET_SEC, 0, "pool.ntp.org");
     MDNS.end();
-    if (MDNS.begin("diagboard")) {
+    if (MDNS.begin("diagboard"))
         Serial.print("http://diagboard.local  or  http://");
-    } else {
+    else
         Serial.print("mDNS failed — use http://");
-    }
     Serial.println(WiFi.localIP());
 }
 
-static bool connectWiFi() {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.printf("Connecting to \"%s\"", WIFI_SSID);
-    unsigned long t = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t < WIFI_CONNECT_TIMEOUT_MS) {
-        delay(250);
-        Serial.print(".");
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println();
-        startNetworkServices();
-        return true;
-    }
+static void startAPMode() {
     WiFi.disconnect(true);
-    Serial.println(" FAILED");
-    return false;
+    WiFi.mode(WIFI_AP);
+    if (WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD)) {
+        apModeActive = true;
+        Serial.printf("AP active — join \"%s\" then open http://%s\n",
+                      WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
+    } else {
+        Serial.println("AP start failed.");
+    }
 }
 
 // ── Thermistor reading ─────────────────────────────────────────────────────────
@@ -574,9 +571,10 @@ void setup() {
         initLog();
     }
 
-    if (!connectWiFi()) {
-        Serial.println("WiFi failed — web server not started. Will retry in loop.");
-    }
+    // Kick off first connection attempt — watchdog in loop() manages retries non-blocking
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.printf("Connecting to \"%s\"...\n", WIFI_SSID);
 
     // Serve the dashboard
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
@@ -650,13 +648,38 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
-    // WiFi watchdog — reconnects without touching session or SD state
-    static unsigned long lastWiFiCheck = 0;
-    if (millis() - lastWiFiCheck >= WIFI_WATCHDOG_INTERVAL_MS) {
+    // Non-blocking WiFi state machine — never hangs loop()
+    static unsigned long lastWiFiCheck  = 0;
+    static unsigned long connectStarted = millis();  // first attempt already started in setup()
+    static bool          connecting     = true;
+
+    if (!apModeActive && millis() - lastWiFiCheck >= WIFI_WATCHDOG_INTERVAL_MS) {
         lastWiFiCheck = millis();
-        if (WiFi.status() != WL_CONNECTED) {
-            Serial.println("WiFi lost — reconnecting...");
-            connectWiFi();
+        wl_status_t st = WiFi.status();
+
+        if (st == WL_CONNECTED) {
+            if (connecting) { connecting = false; startNetworkServices(); }
+
+        } else if (connecting) {
+            if (millis() - connectStarted >= WIFI_CONNECT_TIMEOUT_MS) {
+                wifiRetries++;
+                Serial.printf("WiFi attempt %d/%d timed out\n", wifiRetries, WIFI_MAX_RETRIES);
+                WiFi.disconnect(true);
+                connecting = false;
+                if (wifiRetries >= WIFI_MAX_RETRIES) {
+                    Serial.println("All attempts failed — starting AP fallback.");
+                    startAPMode();
+                }
+            }
+
+        } else {
+            // Start next attempt
+            Serial.printf("Retrying \"%s\" (attempt %d/%d)...\n",
+                          WIFI_SSID, wifiRetries + 1, WIFI_MAX_RETRIES);
+            WiFi.mode(WIFI_STA);
+            WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+            connecting     = true;
+            connectStarted = millis();
         }
     }
 
