@@ -14,6 +14,8 @@
 // ── Data Logging ─────────────────────────────────────────────────────────────
 #define MAX_LOG_ENTRIES           2000000  // hard cap on rows per session
 #define LOG_INTERVAL_DEFAULT_SEC       1   // seconds between SD writes (user-adjustable via UI)
+#define SD_MIN_FREE_MB               50   // refuse to start a session below this free space
+#define STATUS_INTERVAL_MS         5000   // how often the UI polls /status (ms)
 
 // ── Thermistor (10k NTC) ─────────────────────────────────────────────────────
 #define THERMISTOR_B     3950.0f        // Beta coefficient
