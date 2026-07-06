@@ -58,8 +58,6 @@ static const char PAGE[] PROGMEM = R"rawliteral(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AVOL — Diagnostic Board</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
   --orange: #F05A00;
@@ -73,7 +71,7 @@ static const char PAGE[] PROGMEM = R"rawliteral(
 body {
   background: var(--bg);
   color: var(--black);
-  font-family: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
   padding: 36px 40px;
   max-width: 960px;
   margin: 0 auto;
@@ -361,7 +359,7 @@ function draw() {
   for (let k = 0; k <= 4; k++) {
     const yp = toY(mn + rng * k / 4);
     ctx.beginPath(); ctx.moveTo(38, yp); ctx.lineTo(W - 12, yp); ctx.stroke();
-    ctx.fillStyle = '#9A9A9A'; ctx.font = '700 9px Space Grotesk, sans-serif'; ctx.textAlign = 'right';
+    ctx.fillStyle = '#9A9A9A'; ctx.font = '700 9px Arial, sans-serif'; ctx.textAlign = 'right';
     ctx.fillText((mn + rng * k / 4).toFixed(1) + '\xb0', 36, yp + 3);
   }
   hist.v.forEach((arr, si) => {
