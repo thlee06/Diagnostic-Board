@@ -450,10 +450,11 @@ static void startNetworkServices() {
     wifiReady = true;
     configTime(NTP_UTC_OFFSET_SEC, 0, "pool.ntp.org");
     MDNS.end();
+    server.begin();
     if (MDNS.begin("diagboard"))
-        Serial.print("WiFi connected — http://diagboard.local  or  http://");
+        Serial.print("Web server up — http://diagboard.local  or  http://");
     else
-        Serial.print("WiFi connected — http://");
+        Serial.print("Web server up — http://");
     Serial.println(WiFi.localIP());
 }
 
@@ -629,8 +630,8 @@ void setup() {
     });
     server.addHandler(&events);
 
-    server.begin();
-    Serial.println("Web server ready.\n");
+    // Routes registered — server.begin() is called in startNetworkServices() once WiFi is up
+    Serial.println("Routes registered. Waiting for WiFi...\n");
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
