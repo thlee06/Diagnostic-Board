@@ -649,7 +649,7 @@ void loop() {
 
     // Keep-alive ping — forces the async server to flush dead SSE connections
     static unsigned long lastPing = 0;
-    if (millis() - lastPing >= 3000) {
+    if (events.count() > 0 && millis() - lastPing >= 3000) {
         lastPing = millis();
         events.send("", "ping", millis());
     }
@@ -671,7 +671,8 @@ void loop() {
                  (unsigned long)millis(), logCount,
                  (int)sessionState,
                  (int)sdAvailable);
-        events.send(payload, "temp", millis());
+        if (events.count() > 0)
+            events.send(payload, "temp", millis());
     }
 
     // Write to SD at user-configured interval — runs independently of display rate

@@ -26,4 +26,4 @@
 #define ADC_MAX_VALUE    4095           // 12-bit ADC maximum
 
 // ── Sampling ──────────────────────────────────────────────────────────────────
-#define SEND_INTERVAL_MS 100            // live display refresh — independent of log rate
+#define SEND_INTERVAL_MS 500            // live display refresh — independent of log rate
