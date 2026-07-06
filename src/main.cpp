@@ -723,6 +723,24 @@ void setup() {
         Serial.printf("SD mounted — card size: %llu MB\n", SD.cardSize() / (1024 * 1024));
         sdAvailable = true;
         initLog();
+        // Pre-generate test file so the download handler never blocks
+        {
+            const char* tp = "/test_1mb.csv";
+            if (SD.exists(tp)) SD.remove(tp);
+            File f = SD.open(tp, FILE_WRITE);
+            if (f) {
+                f.print("timestamp,A0_C,A1_C,A2_C,A3_C,A4_C,A5_C,note\n");
+                char row[72];
+                for (int i = 0; i < 16000; i++) {
+                    snprintf(row, sizeof(row),
+                             "2025-01-01 00:00:%02d,25.00,25.00,25.00,25.00,25.00,25.00,\n",
+                             i % 60);
+                    f.print(row);
+                }
+                f.close();
+                Serial.println("Test file written to SD");
+            }
+        }
     }
 
     // Hand off to the ESP32 WiFi stack — it will keep trying until it connects
@@ -844,20 +862,11 @@ void setup() {
         req->send(200, "application/json", buf);
     });
 
-    // Generate and serve a ~1 MB test CSV for download diagnostics
+    // Serve pre-generated ~1 MB test CSV (written at boot, never blocks the handler)
     server.on("/test/bigfile", HTTP_GET, [](AsyncWebServerRequest *req) {
         if (!sdAvailable) { req->send(503, "text/plain", "No SD card"); return; }
         const char* path = "/test_1mb.csv";
-        // Regenerate each time so the file is always fresh
-        if (SD.exists(path)) SD.remove(path);
-        File f = SD.open(path, FILE_WRITE);
-        if (!f) { req->send(500, "text/plain", "Failed to create test file"); return; }
-        f.print("timestamp,A0_C,A1_C,A2_C,A3_C,A4_C,A5_C,note\n");
-        // ~65 bytes/row — 16000 rows ≈ 1.04 MB
-        for (int i = 0; i < 16000; i++) {
-            f.printf("2025-01-01 00:00:%02d,25.00,25.00,25.00,25.00,25.00,25.00,\n", i % 60);
-        }
-        f.close();
+        if (!SD.exists(path)) { req->send(404, "text/plain", "Test file not found — reflash to regenerate"); return; }
         AsyncWebServerResponse *resp = req->beginResponse(SD, path, "text/csv");
         resp->addHeader("Content-Disposition", "attachment; filename=\"test_1mb.csv\"");
         req->send(resp);
