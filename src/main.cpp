@@ -694,7 +694,7 @@ void setup() {
     Serial.println("Waiting 2 s for SD power to stabilize...");
     delay(2000);
     SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
-    if (!SD.begin(SD_CS_PIN, SPI, 1000000U)) {
+    if (!SD.begin(SD_CS_PIN, SPI, 4000000U)) {
         Serial.println("ERROR: SD mount failed — check wiring and power");
         Serial.println("  MOSI(D10)->CMD  MISO(D8)->DAT0  SCK(D9)->CLK  CS(D11)->CD/DAT3");
         sdAvailable = false;
