@@ -50,6 +50,13 @@ AsyncEventSource events("/events");
 static float lastTemps[NUM_SENSORS] = {};
 static int logCount = 0;
 
+// ── Session file & markers ────────────────────────────────────────────────────
+static char currentLogFile[64] = "";
+static char markerLabels[6][64] = {
+    "Marker 1", "Marker 2", "Marker 3",
+    "Marker 4", "Marker 5", "Marker 6"
+};
+
 // ── Web page ──────────────────────────────────────────────────────────────────
 static const char PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -273,6 +280,33 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
   color: var(--black);
   text-align: center;
 }
+
+/* ── Markers ── */
+#markers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+.marker-row { display: flex; align-items: center; gap: 8px; }
+.mbtn {
+  flex-shrink: 0;
+  width: 90px;
+  padding: 9px 0;
+  border-right: 1.5px solid var(--black) !important;
+}
+.mbtn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: var(--gray-l) !important; cursor: not-allowed; }
+.minput {
+  flex: 1;
+  padding: 9px 8px;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 500;
+  border: 1.5px solid var(--gray-l);
+  color: var(--black);
+  min-width: 0;
+}
+.minput:focus { outline: none; border-color: var(--black); }
 </style>
 </head>
 <body>
@@ -285,7 +319,10 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
       <span class="board-name">Diagnostic Board</span>
     </div>
   </div>
-  <div id="badge"><span id="pulse"></span><span id="badge-text">CONNECTING</span></div>
+  <div style="display:flex;align-items:center;gap:20px;">
+    <div id="sdstat" style="font-size:0.62rem;font-weight:600;letter-spacing:0.1em;color:var(--gray-m);text-transform:uppercase;"></div>
+    <div id="badge"><span id="pulse"></span><span id="badge-text">CONNECTING</span></div>
+  </div>
 </header>
 
 <div class="rule"></div>
@@ -306,16 +343,41 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
   <canvas id="cv" height="200"></canvas>
 </div>
 
+<div class="sec-label">Markers</div>
+<div id="markers">
+  <div class="marker-row"><button class="btn mbtn" id="mb1" onclick="mark(1)" disabled>Mark 1</button><input class="minput" id="ml1" type="text" value="Marker 1" onchange="setLabel(1,this.value)" placeholder="Label for mark 1"></div>
+  <div class="marker-row"><button class="btn mbtn" id="mb2" onclick="mark(2)" disabled>Mark 2</button><input class="minput" id="ml2" type="text" value="Marker 2" onchange="setLabel(2,this.value)" placeholder="Label for mark 2"></div>
+  <div class="marker-row"><button class="btn mbtn" id="mb3" onclick="mark(3)" disabled>Mark 3</button><input class="minput" id="ml3" type="text" value="Marker 3" onchange="setLabel(3,this.value)" placeholder="Label for mark 3"></div>
+  <div class="marker-row"><button class="btn mbtn" id="mb4" onclick="mark(4)" disabled>Mark 4</button><input class="minput" id="ml4" type="text" value="Marker 4" onchange="setLabel(4,this.value)" placeholder="Label for mark 4"></div>
+  <div class="marker-row"><button class="btn mbtn" id="mb5" onclick="mark(5)" disabled>Mark 5</button><input class="minput" id="ml5" type="text" value="Marker 5" onchange="setLabel(5,this.value)" placeholder="Label for mark 5"></div>
+  <div class="marker-row"><button class="btn mbtn" id="mb6" onclick="mark(6)" disabled>Mark 6</button><input class="minput" id="ml6" type="text" value="Marker 6" onchange="setLabel(6,this.value)" placeholder="Label for mark 6"></div>
+</div>
+
 <div id="bar">
-  <button class="btn" id="startbtn" onclick="startLog()" disabled>Start Log</button>
-  <button class="btn" id="stopbtn"  onclick="stopLog()"  disabled>Stop Log</button>
-  <button class="btn" id="dlbtn"    onclick="downloadLog()" disabled>Download Log</button>
+  <button class="btn" id="startbtn" onclick="startLog()" disabled>Start Session</button>
+  <button class="btn" id="stopbtn"  onclick="stopLog()"  disabled>Stop Session</button>
+  <button class="btn" id="savebtn"  onclick="saveSession()" disabled>Save &amp; Download</button>
   <span id="st"></span>
 </div>
 <div id="sdwarn"></div>
 <div id="irow">
   Log every&nbsp;<input id="ival" type="number" min="1" max="3600" value="1">&nbsp;s
   <button class="btn" style="border:1.5px solid var(--black)" onclick="setLogInterval()">Set</button>
+</div>
+
+<div id="modal-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;align-items:center;justify-content:center;">
+  <div style="background:#fff;padding:32px 36px;max-width:420px;width:90%;border-top:3px solid var(--orange);">
+    <div style="font-size:0.7rem;font-weight:800;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:20px;">Save Session</div>
+    <div style="font-size:0.62rem;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--gray-m);margin-bottom:6px;">Filename</div>
+    <input id="save-name" type="text" style="width:100%;padding:10px 8px;font-family:inherit;font-size:0.8rem;border:1.5px solid var(--black);margin-bottom:16px;">
+    <div style="font-size:0.62rem;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--gray-m);margin-bottom:6px;">Description <span style="font-weight:400;text-transform:none;">(optional)</span></div>
+    <textarea id="save-desc" rows="3" style="width:100%;padding:10px 8px;font-family:inherit;font-size:0.8rem;border:1.5px solid var(--black);resize:vertical;margin-bottom:20px;"></textarea>
+    <div id="overwrite-warn" style="display:none;font-size:0.62rem;font-weight:700;color:#CC1100;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px;">&#9650; A file with this name already exists and will be overwritten.</div>
+    <div style="display:flex;gap:0;">
+      <button class="btn" onclick="confirmSave()" style="border-right:none;">Save &amp; Download</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -373,11 +435,11 @@ function draw() {
   });
 }
 
+// ── SSE ───────────────────────────────────────────────────────────────────────
 let es;
 function connectSSE() {
   if (es) es.close();
   es = new EventSource('/events');
-
   es.addEventListener('temp', function(e) {
     const p     = e.data.split(',');
     const vals  = p.slice(0, 6).map(Number);
@@ -399,22 +461,27 @@ function connectSSE() {
     const badge = document.getElementById('badge');
     const btext = document.getElementById('badge-text');
     badge.className = (state === 1) ? 'recording' : (state === 2) ? 'stopped' : '';
-    btext.textContent = (state === 1) ? 'Recording' : (state === 2) ? 'Session Saved' : 'Idle';
+    btext.textContent = (state === 1) ? 'Recording' : (state === 2) ? 'Session Stopped' : 'Idle';
 
-    document.getElementById('startbtn').disabled = (state === 1) || !sdOk;
-    document.getElementById('stopbtn').disabled  = (state !== 1);
-    document.getElementById('dlbtn').disabled    = (state !== 2);
+    const recording = (state === 1);
+    const stopped   = (state === 2);
+    document.getElementById('startbtn').disabled = recording || !sdOk;
+    document.getElementById('stopbtn').disabled  = !recording;
+    document.getElementById('savebtn').disabled  = !stopped;
+    [1,2,3,4,5,6].forEach(n => {
+      const b = document.getElementById('mb' + n);
+      if (b) b.disabled = !recording;
+    });
 
     const fmt = n => n.toLocaleString();
     const stEl = document.getElementById('st');
     if      (state === 0) stEl.textContent = 'Ready to record';
     else if (state === 1) stEl.textContent = fmt(logC) + ' rows captured';
-    else if (state === 2) stEl.textContent = fmt(logC) + ' rows \u2014 name and download your session';
+    else if (state === 2) stEl.textContent = fmt(logC) + ' rows \u2014 save your session';
 
     push(ms, vals);
     draw();
   });
-
   es.onerror = function() {
     document.getElementById('badge-text').textContent = 'Reconnecting';
     document.getElementById('badge').className = '';
@@ -424,18 +491,68 @@ function connectSSE() {
 }
 connectSSE();
 
+// ── SD status ─────────────────────────────────────────────────────────────────
+function pollStatus() {
+  fetch('/status').then(r => r.json()).then(d => {
+    const el = document.getElementById('sdstat');
+    if (!d.sd) { el.textContent = 'No SD'; el.style.color = '#CC1100'; return; }
+    const gb = (d.free / 1073741824).toFixed(1);
+    el.style.color = (d.free < 200 * 1048576) ? '#CC1100' : 'var(--gray-m)';
+    el.textContent = gb + ' GB free';
+  }).catch(() => {});
+}
+pollStatus();
+setInterval(pollStatus, 5000);
+
+// ── Controls ──────────────────────────────────────────────────────────────────
 function setLogInterval() {
   const v = parseInt(document.getElementById('ival').value);
   if (v >= 1 && v <= 3600) fetch('/log/interval?s=' + v);
 }
-function startLog()    { fetch('/log/start'); }
-function stopLog()     { fetch('/log/stop'); }
-function downloadLog() {
-  const today = new Date().toISOString().slice(0,10).replace(/-/g,'_');
-  const name  = prompt('Enter a name for this session:', 'session_' + today);
-  if (!name || !name.trim()) return;
-  window.location.href = '/download?name=' + encodeURIComponent(name.trim());
+function startLog() {
+  fetch('/log/start').then(r => { if (!r.ok) r.text().then(t => alert('Error: ' + t)); });
 }
+function stopLog() { fetch('/log/stop'); }
+
+function mark(n) { fetch('/mark?n=' + n).catch(() => {}); }
+function setLabel(n, val) {
+  const label = val.trim() || ('Marker ' + n);
+  fetch('/marker/set?n=' + n + '&label=' + encodeURIComponent(label)).catch(() => {});
+}
+
+// ── Save modal ────────────────────────────────────────────────────────────────
+function saveSession() {
+  document.getElementById('save-name').value = 'session_' + new Date().toISOString().slice(0,10).replace(/-/g,'_');
+  document.getElementById('save-desc').value = '';
+  document.getElementById('overwrite-warn').style.display = 'none';
+  document.getElementById('modal-bg').style.display = 'flex';
+  document.getElementById('save-name').focus();
+}
+function closeModal() { document.getElementById('modal-bg').style.display = 'none'; }
+function confirmSave() {
+  const name = document.getElementById('save-name').value.trim();
+  const desc = document.getElementById('save-desc').value.trim();
+  if (!name) { document.getElementById('save-name').focus(); return; }
+  const url = '/log/save?name=' + encodeURIComponent(name) + '&desc=' + encodeURIComponent(desc);
+  fetch(url).then(r => {
+    const overwritten = r.headers.get('X-Overwrite') === 'true';
+    if (overwritten) document.getElementById('overwrite-warn').style.display = 'block';
+    if (r.ok) {
+      return r.blob().then(b => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = name.replace(/[^a-zA-Z0-9_\-]/g,'_') + '.csv';
+        a.click();
+        closeModal();
+      });
+    } else {
+      return r.text().then(t => alert('Save failed: ' + t));
+    }
+  }).catch(e => alert('Network error: ' + e));
+}
+document.getElementById('modal-bg').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
 </script>
 </body>
 </html>
@@ -445,15 +562,21 @@ function downloadLog() {
 static bool wifiReady = false;   // true once connected and services started
 
 static void startNetworkServices() {
+    static bool serverStarted = false;
     wifiReady = true;
     configTime(NTP_UTC_OFFSET_SEC, 0, "pool.ntp.org");
-    MDNS.end();
-    server.begin();
-    if (MDNS.begin("diagboard"))
-        Serial.print("Web server up — http://diagboard.local  or  http://");
-    else
-        Serial.print("Web server up — http://");
-    Serial.println(WiFi.localIP());
+    if (!serverStarted) {
+        MDNS.end();
+        server.begin();
+        serverStarted = true;
+        if (MDNS.begin("diagboard"))
+            Serial.print("Web server up — http://diagboard.local  or  http://");
+        else
+            Serial.print("Web server up — http://");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println("WiFi reconnected — server already running");
+    }
 }
 
 // ── Thermistor reading ─────────────────────────────────────────────────────────
@@ -473,19 +596,18 @@ float readTemperatureCelsius(int idx) {
 }
 
 // ── Log helpers ───────────────────────────────────────────────────────────────
-static const char LOG_FILE[]   = "/session_temp.csv";
-static const char LOG_HEADER[] = "timestamp,A0_C,A1_C,A2_C,A3_C,A4_C,A5_C\n";
+static const char LOG_HEADER[] = "timestamp,A0_C,A1_C,A2_C,A3_C,A4_C,A5_C,note\n";
 static unsigned int logIntervalSec = LOG_INTERVAL_DEFAULT_SEC;
 
 void initLog() {
-    if (SD.exists(LOG_FILE)) {
-        // Session file from before reboot — resume it rather than wiping
-        File f = SD.open(LOG_FILE, FILE_READ);
+    const char* tempPath = "/session_temp.csv";
+    if (SD.exists(tempPath)) {
+        strlcpy(currentLogFile, tempPath, sizeof(currentLogFile));
+        File f = SD.open(tempPath, FILE_READ);
         size_t sz = f ? f.size() : 0;
         if (f) f.close();
-        // Estimate existing row count (header + ~58 bytes/row)
         const size_t headerLen = strlen(LOG_HEADER);
-        logCount = sz > headerLen ? (sz - headerLen) / 58 : 0;
+        logCount = sz > headerLen ? (sz - headerLen) / 65 : 0;
         sessionState = SESSION_RECORDING;
         Serial.printf("Resumed session from SD — ~%d rows already logged\n", logCount);
     } else {
@@ -497,10 +619,11 @@ void initLog() {
 void appendLog(float* temps) {
     if (sessionState != SESSION_RECORDING) return;
     if (logCount >= MAX_LOG_ENTRIES) {
-        sessionState = SESSION_STOPPED;  // auto-stop if cap reached
+        sessionState = SESSION_STOPPED;
         return;
     }
-    File f = SD.open(LOG_FILE, FILE_APPEND);
+    if (currentLogFile[0] == '\0') return;
+    File f = SD.open(currentLogFile, FILE_APPEND);
     if (!f) return;
 
     char ts[24] = "unknown";
@@ -509,10 +632,35 @@ void appendLog(float* temps) {
         strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &t);
     }
 
-    char row[100];
-    snprintf(row, sizeof(row), "%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n",
+    char row[112];
+    snprintf(row, sizeof(row), "%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,\n",
              ts,
              temps[0], temps[1], temps[2], temps[3], temps[4], temps[5]);
+    f.print(row);
+    f.close();
+    logCount++;
+}
+
+void appendMarker(int n, float* temps) {
+    if (sessionState != SESSION_RECORDING) return;
+    if (currentLogFile[0] == '\0') return;
+    File f = SD.open(currentLogFile, FILE_APPEND);
+    if (!f) return;
+
+    char ts[24] = "unknown";
+    struct tm t;
+    if (getLocalTime(&t, 0)) {
+        strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &t);
+    }
+
+    char label[80];
+    snprintf(label, sizeof(label), "MARK %d: %s", n, markerLabels[n - 1]);
+
+    char row[180];
+    snprintf(row, sizeof(row), "%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
+             ts,
+             temps[0], temps[1], temps[2], temps[3], temps[4], temps[5],
+             label);
     f.print(row);
     f.close();
     logCount++;
@@ -567,24 +715,70 @@ void setup() {
         req->send(200, "text/html", PAGE);
     });
 
-    // Start a new session — wipes any previous temp file and begins logging
+    // Start a new session
     server.on("/log/start", HTTP_GET, [](AsyncWebServerRequest *req) {
         if (!sdAvailable) { req->send(503, "text/plain", "No SD card"); return; }
-        if (SD.exists(LOG_FILE)) SD.remove(LOG_FILE);
-        File f = SD.open(LOG_FILE, FILE_WRITE);
-        if (f) { f.print(LOG_HEADER); f.close(); }
+        if (sessionState == SESSION_RECORDING) { req->send(400, "text/plain", "Already recording"); return; }
+        uint64_t freeBytes = SD.totalBytes() - SD.usedBytes();
+        if (freeBytes < (uint64_t)SD_MIN_FREE_MB * 1024 * 1024) {
+            req->send(507, "text/plain", "Insufficient storage"); return;
+        }
+        const char* tempPath = "/session_temp.csv";
+        if (SD.exists(tempPath)) SD.remove(tempPath);
+        File f = SD.open(tempPath, FILE_WRITE);
+        if (!f) { req->send(500, "text/plain", "Failed to create file"); return; }
+        f.print(LOG_HEADER);
+        f.close();
+        strlcpy(currentLogFile, tempPath, sizeof(currentLogFile));
         logCount = 0;
         sessionState = SESSION_RECORDING;
         req->send(200, "text/plain", "OK");
     });
 
-    // Stop logging — data stays on SD, waiting for download
+    // Stop logging — data stays on SD, waiting for save
     server.on("/log/stop", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (sessionState != SESSION_RECORDING) { req->send(400, "text/plain", "Not recording"); return; }
         sessionState = SESSION_STOPPED;
         req->send(200, "text/plain", "OK");
     });
 
-    // Set log interval — ?s=N where N is seconds between SD writes
+    // Save session — append metadata, rename, serve download
+    server.on("/log/save", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (!sdAvailable) { req->send(503, "text/plain", "No SD card"); return; }
+        if (sessionState != SESSION_STOPPED) { req->send(400, "text/plain", "Not stopped"); return; }
+        if (currentLogFile[0] == '\0' || !SD.exists(currentLogFile)) {
+            req->send(404, "text/plain", "No session file"); return;
+        }
+        String raw  = req->hasParam("name") ? req->getParam("name")->value() : "session";
+        String desc = req->hasParam("desc") ? req->getParam("desc")->value() : "";
+        String safe = sanitizeName(raw);
+        String dest = "/" + safe + ".csv";
+        bool overwrite = SD.exists(dest);
+        if (overwrite) SD.remove(dest);
+        {
+            File f = SD.open(currentLogFile, FILE_APPEND);
+            if (f) {
+                f.print("# ---\n");
+                f.printf("# Name: %s\n", safe.c_str());
+                if (desc.length() > 0) f.printf("# Description: %s\n", desc.c_str());
+                for (int i = 0; i < 6; i++) {
+                    f.printf("# Marker %d: %s\n", i + 1, markerLabels[i]);
+                }
+                f.close();
+            }
+        }
+        SD.rename(currentLogFile, dest.c_str());
+        sessionState = SESSION_IDLE;
+        logCount = 0;
+        currentLogFile[0] = '\0';
+        String disp = "attachment; filename=\"" + safe + ".csv\"";
+        AsyncWebServerResponse *resp = req->beginResponse(SD, dest.c_str(), "text/csv");
+        resp->addHeader("Content-Disposition", disp.c_str());
+        if (overwrite) resp->addHeader("X-Overwrite", "true");
+        req->send(resp);
+    });
+
+    // Set log interval — ?s=N
     server.on("/log/interval", HTTP_GET, [](AsyncWebServerRequest *req) {
         if (req->hasParam("s")) {
             int v = req->getParam("s")->value().toInt();
@@ -593,33 +787,40 @@ void setup() {
         req->send(200, "text/plain", String(logIntervalSec).c_str());
     });
 
-    // Download — prompt came from the browser; rename temp file, serve it, go idle
-    server.on("/download", HTTP_GET, [](AsyncWebServerRequest *req) {
-        if (!sdAvailable) { req->send(503, "text/plain", "No SD card"); return; }
-        if (sessionState != SESSION_STOPPED) {
-            req->send(400, "text/plain", "No completed session to download");
-            return;
+    // Write a marker row for button n (1–6)
+    server.on("/mark", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (sessionState != SESSION_RECORDING) { req->send(400, "text/plain", "Not recording"); return; }
+        if (!req->hasParam("n")) { req->send(400, "text/plain", "Missing n"); return; }
+        int n = req->getParam("n")->value().toInt();
+        if (n < 1 || n > 6) { req->send(400, "text/plain", "n must be 1-6"); return; }
+        appendMarker(n, lastTemps);
+        req->send(200, "text/plain", "OK");
+    });
+
+    // Update a marker label in RAM — ?n=1&label=Fan+on
+    server.on("/marker/set", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (!req->hasParam("n") || !req->hasParam("label")) {
+            req->send(400, "text/plain", "Missing params"); return;
         }
-        if (!SD.exists(LOG_FILE)) {
-            req->send(404, "text/plain", "Session file missing");
-            return;
-        }
+        int n = req->getParam("n")->value().toInt();
+        if (n < 1 || n > 6) { req->send(400, "text/plain", "n must be 1-6"); return; }
+        String lbl = req->getParam("label")->value();
+        lbl.trim();
+        if (lbl.length() == 0) lbl = String("Marker ") + n;
+        strlcpy(markerLabels[n - 1], lbl.c_str(), sizeof(markerLabels[0]));
+        req->send(200, "text/plain", "OK");
+    });
 
-        String raw  = req->hasParam("name") ? req->getParam("name")->value() : "session";
-        String safe = sanitizeName(raw);
-        String path = "/" + safe + ".csv";
-
-        // If a file with this name already exists on the SD, remove it first
-        if (SD.exists(path)) SD.remove(path);
-        SD.rename(LOG_FILE, path.c_str());
-
-        sessionState = SESSION_IDLE;
-        logCount = 0;
-
-        String disp = "attachment; filename=\"" + safe + ".csv\"";
-        AsyncWebServerResponse *resp = req->beginResponse(SD, path.c_str(), "text/csv");
-        resp->addHeader("Content-Disposition", disp.c_str());
-        req->send(resp);
+    // SD space and session state
+    server.on("/status", HTTP_GET, [](AsyncWebServerRequest *req) {
+        uint64_t total = sdAvailable ? SD.totalBytes() : 0;
+        uint64_t used  = sdAvailable ? SD.usedBytes()  : 0;
+        uint64_t free_ = total - used;
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+                 "{\"free\":%llu,\"total\":%llu,\"state\":%d,\"rows\":%d,\"sd\":%d}",
+                 free_, total, (int)sessionState, logCount, (int)sdAvailable);
+        req->send(200, "application/json", buf);
     });
 
     // SSE: confirm connection on client connect
