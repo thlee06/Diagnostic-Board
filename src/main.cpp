@@ -365,6 +365,11 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
   <button class="btn" style="border:1.5px solid var(--black)" onclick="setLogInterval()">Set</button>
 </div>
 
+<div style="margin-top:10px;">
+  <button class="btn" style="border:1.5px solid var(--gray-m);color:var(--gray-m);" onclick="testDownload()">Test: Download 1 MB</button>
+  <span style="font-size:0.6rem;letter-spacing:0.1em;color:var(--gray-m);margin-left:12px;text-transform:uppercase;" id="test-st"></span>
+</div>
+
 <div id="modal-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;align-items:center;justify-content:center;">
   <div style="background:#fff;padding:32px 36px;max-width:420px;width:90%;border-top:3px solid var(--orange);">
     <div style="font-size:0.7rem;font-weight:800;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:20px;">Save Session</div>
@@ -518,6 +523,22 @@ function mark(n) { fetch('/mark?n=' + n).catch(() => {}); }
 function setLabel(n, val) {
   const label = val.trim() || ('Marker ' + n);
   fetch('/marker/set?n=' + n + '&label=' + encodeURIComponent(label)).catch(() => {});
+}
+
+// ── Test download ─────────────────────────────────────────────────────────────
+function testDownload() {
+  const st = document.getElementById('test-st');
+  st.textContent = 'Generating...';
+  fetch('/test/bigfile').then(r => {
+    if (!r.ok) { return r.text().then(t => { st.textContent = 'Error: ' + t; }); }
+    return r.blob().then(b => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(b);
+      a.download = 'test_1mb.csv';
+      a.click();
+      st.textContent = 'Done (' + (b.size / 1048576).toFixed(2) + ' MB)';
+    });
+  }).catch(e => { st.textContent = 'Failed: ' + e; });
 }
 
 // ── Save modal ────────────────────────────────────────────────────────────────
@@ -821,6 +842,25 @@ void setup() {
                  "{\"free\":%llu,\"total\":%llu,\"state\":%d,\"rows\":%d,\"sd\":%d}",
                  free_, total, (int)sessionState, logCount, (int)sdAvailable);
         req->send(200, "application/json", buf);
+    });
+
+    // Generate and serve a ~1 MB test CSV for download diagnostics
+    server.on("/test/bigfile", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (!sdAvailable) { req->send(503, "text/plain", "No SD card"); return; }
+        const char* path = "/test_1mb.csv";
+        // Regenerate each time so the file is always fresh
+        if (SD.exists(path)) SD.remove(path);
+        File f = SD.open(path, FILE_WRITE);
+        if (!f) { req->send(500, "text/plain", "Failed to create test file"); return; }
+        f.print("timestamp,A0_C,A1_C,A2_C,A3_C,A4_C,A5_C,note\n");
+        // ~65 bytes/row — 16000 rows ≈ 1.04 MB
+        for (int i = 0; i < 16000; i++) {
+            f.printf("2025-01-01 00:00:%02d,25.00,25.00,25.00,25.00,25.00,25.00,\n", i % 60);
+        }
+        f.close();
+        AsyncWebServerResponse *resp = req->beginResponse(SD, path, "text/csv");
+        resp->addHeader("Content-Disposition", "attachment; filename=\"test_1mb.csv\"");
+        req->send(resp);
     });
 
     // SSE: confirm connection on client connect
