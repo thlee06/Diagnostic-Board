@@ -353,6 +353,27 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
   <canvas id="cv" height="200"></canvas>
 </div>
 
+<div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:28px;align-items:flex-end;">
+  <div>
+    <div class="sec-label" style="margin-bottom:6px;">RoR Window</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <input type="range" id="ror-win" min="10" max="120" value="30" step="5"
+             style="width:120px;accent-color:var(--orange);"
+             oninput="document.getElementById('ror-win-v').textContent=this.value+'s'">
+      <span id="ror-win-v" style="font-size:0.68rem;font-weight:700;letter-spacing:0.1em;color:var(--gray-d);min-width:36px;">30s</span>
+    </div>
+  </div>
+  <div>
+    <div class="sec-label" style="margin-bottom:6px;">Plateau Threshold</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <input type="range" id="ror-thresh" min="1" max="50" value="5" step="1"
+             style="width:120px;accent-color:var(--orange);"
+             oninput="document.getElementById('ror-thresh-v').textContent=(this.value/100).toFixed(2)+' \xb0C/min'">
+      <span id="ror-thresh-v" style="font-size:0.68rem;font-weight:700;letter-spacing:0.1em;color:var(--gray-d);min-width:72px;">0.05 °C/min</span>
+    </div>
+  </div>
+</div>
+
 <div class="sec-label">Markers</div>
 <div id="markers">
   <div class="marker-row"><button class="btn mbtn" id="mb1" onclick="mark(1)" disabled>Mark 1</button><input class="minput" id="ml1" type="text" value="Marker 1" onchange="setLabel(1,this.value)" placeholder="Label for mark 1"></div>
@@ -470,8 +491,9 @@ function connectSSE() {
       else               { el.textContent = v.toFixed(2) + '\xb0C'; el.className = 'val'; }
     });
 
-    // Rate-of-rise over a 30-second sliding window (°C/min) via linear regression
-    const ROR_WINDOW_MS = 30000;
+    // Rate-of-rise over a user-configurable sliding window (°C/min) via linear regression
+    const ROR_WINDOW_MS = parseInt(document.getElementById('ror-win').value) * 1000;
+    const ROR_THRESH    = parseInt(document.getElementById('ror-thresh').value) / 100;
     vals.forEach((v, i) => {
       const rel = document.getElementById('r' + i);
       if (!rel || Math.abs(v) > 500) { if (rel) rel.textContent = ''; return; }
@@ -490,7 +512,7 @@ function connectSSE() {
       const slope = (n*sxy - sx*sy) / (n*sx2 - sx*sx); // °C/min
       const sign = slope >= 0 ? '+' : '';
       rel.textContent = sign + slope.toFixed(2) + ' \xb0C/min';
-      rel.className = 'ror' + (Math.abs(slope) < 0.05 ? ' plateau' : slope > 0 ? ' rising' : '');
+      rel.className = 'ror' + (Math.abs(slope) < ROR_THRESH ? ' plateau' : slope > 0 ? ' rising' : '');
     });
 
     document.getElementById('sdwarn').textContent =
