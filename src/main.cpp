@@ -444,31 +444,17 @@ function downloadLog() {
 )rawliteral";
 
 // ── WiFi helpers ──────────────────────────────────────────────────────────────
-static bool apModeActive = false;
-static int  wifiRetries  = 0;
+static bool wifiReady = false;   // true once connected and services started
 
 static void startNetworkServices() {
-    apModeActive = false;
-    wifiRetries  = 0;
+    wifiReady = true;
     configTime(NTP_UTC_OFFSET_SEC, 0, "pool.ntp.org");
     MDNS.end();
     if (MDNS.begin("diagboard"))
-        Serial.print("http://diagboard.local  or  http://");
+        Serial.print("WiFi connected — http://diagboard.local  or  http://");
     else
-        Serial.print("mDNS failed — use http://");
+        Serial.print("WiFi connected — http://");
     Serial.println(WiFi.localIP());
-}
-
-static void startAPMode() {
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_AP);
-    if (WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD)) {
-        apModeActive = true;
-        Serial.printf("AP active — join \"%s\" then open http://%s\n",
-                      WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
-    } else {
-        Serial.println("AP start failed.");
-    }
 }
 
 // ── Thermistor reading ─────────────────────────────────────────────────────────
@@ -571,10 +557,11 @@ void setup() {
         initLog();
     }
 
-    // Kick off first connection attempt — watchdog in loop() manages retries non-blocking
+    // Hand off to the ESP32 WiFi stack — it will keep trying until it connects
     WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.printf("Connecting to \"%s\"...\n", WIFI_SSID);
+    Serial.printf("Connecting to \"%s\" (will keep trying)...\n", WIFI_SSID);
 
     // Serve the dashboard
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
@@ -648,38 +635,16 @@ void setup() {
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
-    // Non-blocking WiFi state machine — never hangs loop()
-    static unsigned long lastWiFiCheck  = 0;
-    static unsigned long connectStarted = millis();  // first attempt already started in setup()
-    static bool          connecting     = true;
-
-    if (!apModeActive && millis() - lastWiFiCheck >= WIFI_WATCHDOG_INTERVAL_MS) {
+    // WiFi watchdog — lets the ESP32 stack manage reconnection, we just react to state changes
+    static unsigned long lastWiFiCheck = 0;
+    if (millis() - lastWiFiCheck >= WIFI_WATCHDOG_INTERVAL_MS) {
         lastWiFiCheck = millis();
-        wl_status_t st = WiFi.status();
-
-        if (st == WL_CONNECTED) {
-            if (connecting) { connecting = false; startNetworkServices(); }
-
-        } else if (connecting) {
-            if (millis() - connectStarted >= WIFI_CONNECT_TIMEOUT_MS) {
-                wifiRetries++;
-                Serial.printf("WiFi attempt %d/%d timed out\n", wifiRetries, WIFI_MAX_RETRIES);
-                WiFi.disconnect(true);
-                connecting = false;
-                if (wifiRetries >= WIFI_MAX_RETRIES) {
-                    Serial.println("All attempts failed — starting AP fallback.");
-                    startAPMode();
-                }
-            }
-
-        } else {
-            // Start next attempt
-            Serial.printf("Retrying \"%s\" (attempt %d/%d)...\n",
-                          WIFI_SSID, wifiRetries + 1, WIFI_MAX_RETRIES);
-            WiFi.mode(WIFI_STA);
-            WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-            connecting     = true;
-            connectStarted = millis();
+        bool connected = (WiFi.status() == WL_CONNECTED);
+        if (connected && !wifiReady) {
+            startNetworkServices();           // just connected
+        } else if (!connected && wifiReady) {
+            wifiReady = false;
+            Serial.println("WiFi lost — reconnecting...");  // stack auto-reconnects
         }
     }
 
