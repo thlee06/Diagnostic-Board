@@ -189,6 +189,16 @@ header {
   letter-spacing: -0.01em;
 }
 .val.err { font-size: 0.9rem; color: #CC1100; font-weight: 700; letter-spacing: 0.08em; }
+.ror {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--gray-m);
+  margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.ror.rising  { color: #CC1100; }
+.ror.plateau { color: #2E7D32; }
 
 /* ── Chart ── */
 .chart-wrap { position: relative; margin-bottom: 28px; }
@@ -329,12 +339,12 @@ button.btn:disabled { background: #F5F5F5; color: var(--gray-l); border-color: v
 
 <div class="sec-label">Live Sensors</div>
 <div id="grid">
-  <div class="card"><div class="lbl">Channel A0</div><div class="val" id="v0">--</div></div>
-  <div class="card"><div class="lbl">Channel A1</div><div class="val" id="v1">--</div></div>
-  <div class="card"><div class="lbl">Channel A2</div><div class="val" id="v2">--</div></div>
-  <div class="card"><div class="lbl">Channel A3</div><div class="val" id="v3">--</div></div>
-  <div class="card"><div class="lbl">Channel A4</div><div class="val" id="v4">--</div></div>
-  <div class="card"><div class="lbl">Channel A5</div><div class="val" id="v5">--</div></div>
+  <div class="card"><div class="lbl">Channel A0</div><div class="val" id="v0">--</div><div class="ror" id="r0"></div></div>
+  <div class="card"><div class="lbl">Channel A1</div><div class="val" id="v1">--</div><div class="ror" id="r1"></div></div>
+  <div class="card"><div class="lbl">Channel A2</div><div class="val" id="v2">--</div><div class="ror" id="r2"></div></div>
+  <div class="card"><div class="lbl">Channel A3</div><div class="val" id="v3">--</div><div class="ror" id="r3"></div></div>
+  <div class="card"><div class="lbl">Channel A4</div><div class="val" id="v4">--</div><div class="ror" id="r4"></div></div>
+  <div class="card"><div class="lbl">Channel A5</div><div class="val" id="v5">--</div><div class="ror" id="r5"></div></div>
 </div>
 
 <div class="sec-label">Temperature History</div>
@@ -458,6 +468,29 @@ function connectSSE() {
       if (v > 500)       { el.textContent = 'OPEN';  el.className = 'val err'; }
       else if (v < -500) { el.textContent = 'SHORT'; el.className = 'val err'; }
       else               { el.textContent = v.toFixed(2) + '\xb0C'; el.className = 'val'; }
+    });
+
+    // Rate-of-rise over a 30-second sliding window (°C/min) via linear regression
+    const ROR_WINDOW_MS = 30000;
+    vals.forEach((v, i) => {
+      const rel = document.getElementById('r' + i);
+      if (!rel || Math.abs(v) > 500) { if (rel) rel.textContent = ''; return; }
+      const now = ms;
+      const cutoff = now - ROR_WINDOW_MS;
+      const tx = [], ty = [];
+      for (let k = 0; k < hist.t.length; k++) {
+        if (hist.t[k] >= cutoff && Math.abs(hist.v[i][k]) < 500) {
+          tx.push((hist.t[k] - cutoff) / 60000); // minutes from window start
+          ty.push(hist.v[i][k]);
+        }
+      }
+      if (tx.length < 4) { rel.textContent = ''; rel.className = 'ror'; return; }
+      let sx = 0, sy = 0, sxy = 0, sx2 = 0, n = tx.length;
+      for (let k = 0; k < n; k++) { sx += tx[k]; sy += ty[k]; sxy += tx[k]*ty[k]; sx2 += tx[k]*tx[k]; }
+      const slope = (n*sxy - sx*sy) / (n*sx2 - sx*sx); // °C/min
+      const sign = slope >= 0 ? '+' : '';
+      rel.textContent = sign + slope.toFixed(2) + ' \xb0C/min';
+      rel.className = 'ror' + (Math.abs(slope) < 0.05 ? ' plateau' : slope > 0 ? ' rising' : '');
     });
 
     document.getElementById('sdwarn').textContent =
